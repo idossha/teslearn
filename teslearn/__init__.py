@@ -18,6 +18,7 @@ from .data import Subject, Dataset, load_dataset_from_csv
 from .features import (
     AtlasFeatureExtractor,
     VoxelFeatureExtractor,
+    MetadataFeatureExtractor,
 )
 from .selection import (
     TTestSelector,
@@ -48,6 +49,7 @@ __all__ = [
     # Features
     "AtlasFeatureExtractor",
     "VoxelFeatureExtractor",
+    "MetadataFeatureExtractor",
     # Selection
     "TTestSelector",
     "FRegressionSelector",

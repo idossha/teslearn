@@ -261,18 +261,6 @@ This design allows you to:
 
 For full documentation, visit: https://teslearn.readthedocs.io
 
-## Citation
-
-If you use TESLearn in your research, please cite:
-
-```bibtex
-@software{teslearn,
-  title = {TESLearn: Machine Learning for Transcranial Electrical Stimulation},
-  author = {TESLearn Contributors},
-  year = {2024},
-  url = {https://github.com/yourusername/teslearn}
-}
-```
 
 ## License
 

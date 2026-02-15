@@ -34,6 +34,8 @@ class Subject:
         Target variable (0/1 for classification, continuous for regression)
     efield_path : Optional[Path]
         Path to the E-field NIfTI file
+    n_stimulation_protocols : Optional[int]
+        Number of stimulation protocols (must be > 0 if provided)
     metadata : Dict[str, Any]
         Additional subject-level metadata
     """
@@ -43,7 +45,16 @@ class Subject:
     condition: Optional[str] = None
     target: Optional[float] = None
     efield_path: Optional[Path] = None
+    n_stimulation_protocols: Optional[int] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        """Validate n_stimulation_protocols if provided."""
+        if self.n_stimulation_protocols is not None:
+            if not isinstance(self.n_stimulation_protocols, int):
+                raise ValueError("n_stimulation_protocols must be an integer")
+            if self.n_stimulation_protocols <= 0:
+                raise ValueError("n_stimulation_protocols must be > 0")
 
     def is_sham(self, sham_value: str = "sham") -> bool:
         """Check if this subject is a sham condition."""
@@ -204,6 +215,7 @@ def load_dataset_from_csv(
     efield_base_dir: Optional[Union[str, Path]] = None,
     target_col: str = "response",
     condition_col: Optional[str] = None,
+    n_protocols_col: Optional[str] = "n_stimulation_protocols",
     sham_value: str = "sham",
     task: str = "classification",
     efield_pattern: str = "{subject_id}/{simulation_name}/efield.nii.gz",
@@ -217,6 +229,7 @@ def load_dataset_from_csv(
     - simulation_name: Stimulation configuration name
     - {target_col}: Target variable (required if require_target=True)
     - {condition_col}: Experimental condition (optional)
+    - {n_protocols_col}: Number of stimulation protocols, integer > 0 (optional)
 
     Parameters
     ----------
@@ -228,6 +241,8 @@ def load_dataset_from_csv(
         Name of target column
     condition_col : Optional[str]
         Name of condition column
+    n_protocols_col : Optional[str]
+        Name of column containing number of stimulation protocols
     sham_value : str
         Value indicating sham condition
     task : str
@@ -309,6 +324,22 @@ def load_dataset_from_csv(
                                 f"Invalid target on line {i}: {target_str}"
                             ) from e
 
+            # Get number of stimulation protocols
+            n_stimulation_protocols = None
+            if n_protocols_col and n_protocols_col in row:
+                protocols_str = row.get(n_protocols_col, "").strip()
+                if protocols_str:
+                    try:
+                        n_stimulation_protocols = int(protocols_str)
+                        if n_stimulation_protocols <= 0:
+                            raise ValueError(
+                                f"n_stimulation_protocols must be > 0, got {n_stimulation_protocols}"
+                            )
+                    except ValueError as e:
+                        raise ValueError(
+                            f"Invalid n_stimulation_protocols on line {i}: {protocols_str}"
+                        ) from e
+
             # Resolve E-field path (allow empty for sham)
             is_sham = (
                 condition and condition.strip().lower() == sham_value.strip().lower()
@@ -329,6 +360,7 @@ def load_dataset_from_csv(
                 condition=condition,
                 target=target,
                 efield_path=efield_path,
+                n_stimulation_protocols=n_stimulation_protocols,
                 metadata={k: v for k, v in row.items() if k not in required},
             )
             subjects.append(subject)

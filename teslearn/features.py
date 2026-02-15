@@ -430,6 +430,122 @@ class WholeBrainFeatureExtractor(BaseFeatureExtractor):
             )
 
 
+class MetadataFeatureExtractor(BaseFeatureExtractor):
+    """
+    Extract metadata features from Subject objects.
+
+    This extractor pulls scalar values from subject metadata (like n_stimulation_protocols)
+    and includes them as features in the model.
+
+    Parameters
+    ----------
+    metadata_fields : List[str]
+        List of metadata field names to extract as features
+    subjects : List[Subject]
+        List of Subject objects containing the metadata
+
+    Examples
+    --------
+    >>> extractor = MetadataFeatureExtractor(
+    ...     metadata_fields=['n_stimulation_protocols'],
+    ...     subjects=dataset.subjects
+    ... )
+    >>> X_metadata = extractor.fit_transform(efield_images)  # images are ignored
+    """
+
+    def __init__(
+        self,
+        metadata_fields: List[str],
+        subjects: List[Any],
+    ):
+        super().__init__()
+        self.metadata_fields = metadata_fields
+        self.subjects = subjects
+
+    def fit(
+        self, images: List[NiftiImageLike], y: Optional[np.ndarray] = None
+    ) -> "MetadataFeatureExtractor":
+        """
+        Fit the extractor (validates subjects and fields).
+
+        Parameters
+        ----------
+        images : List[NiftiImageLike]
+            Ignored, present for API compatibility
+        y : Optional[np.ndarray]
+            Not used, present for API compatibility
+        """
+        if not self.subjects:
+            raise ValueError("No subjects provided")
+
+        # Validate that metadata fields exist and are numeric
+        for field in self.metadata_fields:
+            values = self._get_field_values(field)
+            if all(v is None for v in values):
+                logger.warning(f"Metadata field '{field}' is None for all subjects")
+
+        self.feature_names_ = self.metadata_fields
+        self._is_fitted = True
+        logger.info(
+            f"MetadataFeatureExtractor fitted with {len(self.metadata_fields)} fields"
+        )
+
+        return self
+
+    def transform(self, images: List[NiftiImageLike]) -> np.ndarray:
+        """
+        Extract metadata features.
+
+        Parameters
+        ----------
+        images : List[NiftiImageLike]
+            Ignored, present for API compatibility
+
+        Returns
+        -------
+        X : np.ndarray
+            Feature matrix of shape (n_subjects, n_fields)
+        """
+        self._check_is_fitted()
+
+        n_samples = len(self.subjects)
+        n_features = len(self.metadata_fields)
+        X = np.zeros((n_samples, n_features), dtype=np.float32)
+
+        for col_idx, field in enumerate(self.metadata_fields):
+            values = self._get_field_values(field)
+            for row_idx, value in enumerate(values):
+                if value is not None:
+                    X[row_idx, col_idx] = float(value)
+
+        return X
+
+    def _get_field_values(self, field: str) -> List[Optional[float]]:
+        """Get values for a metadata field from all subjects."""
+        values = []
+        for subject in self.subjects:
+            if hasattr(subject, field):
+                value = getattr(subject, field)
+                values.append(value)
+            elif field in subject.metadata:
+                value = subject.metadata[field]
+                # Try to convert to numeric
+                try:
+                    value = float(value)
+                except (ValueError, TypeError):
+                    value = None
+                values.append(value)
+            else:
+                values.append(None)
+        return values
+
+    def _check_is_fitted(self):
+        if not self._is_fitted:
+            raise RuntimeError(
+                "MetadataFeatureExtractor must be fitted before transform"
+            )
+
+
 class CompositeFeatureExtractor(BaseFeatureExtractor):
     """
     Combine multiple feature extractors.
