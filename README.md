@@ -24,13 +24,33 @@
 
 ## Installation
 
+### Using UV (Recommended)
+
+This project uses [uv](https://docs.astral.sh/uv/) for fast, reliable package management.
+
+```bash
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Create virtual environment
+uv venv
+source .venv/bin/activate  # On macOS/Linux
+# OR: .venv\Scripts\activate  # On Windows
+
+# Install with dependencies
+uv pip install -e ".[plotting,jupyter]"  # For notebooks and visualization
+uv pip install -e ".[all]"               # Install everything
+```
+
+See [UV_SETUP.md](UV_SETUP.md) for detailed instructions.
+
 ### From PyPI (when available)
 
 ```bash
 pip install teslearn
 ```
 
-### From Source
+### From Source (Traditional)
 
 ```bash
 git clone https://github.com/yourusername/teslearn.git
@@ -43,6 +63,9 @@ pip install -e .
 ```bash
 # Include plotting support
 pip install "teslearn[plotting]"
+
+# Jupyter notebook support
+pip install "teslearn[jupyter]"
 
 # Development dependencies
 pip install "teslearn[dev]"

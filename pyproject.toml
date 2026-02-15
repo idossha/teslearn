@@ -46,6 +46,13 @@ dependencies = [
 [project.optional-dependencies]
 plotting = [
     "matplotlib>=3.3.0",
+    "seaborn>=0.11.0",
+]
+jupyter = [
+    "jupyter>=1.0.0",
+    "notebook>=6.4.0",
+    "ipykernel>=6.0.0",
+    "pandas>=1.3.0",
 ]
 dev = [
     "pytest>=6.0",
@@ -60,7 +67,7 @@ docs = [
     "numpydoc>=1.1",
 ]
 all = [
-    "teslearn[plotting,dev,docs]"
+    "teslearn[plotting,jupyter,dev,docs]"
 ]
 
 [project.urls]
@@ -121,3 +128,11 @@ exclude_lines = [
     "raise AssertionError",
     "raise NotImplementedError",
 ]
+
+[tool.uv]
+python-preference = "only-managed"
+managed = true
+
+[tool.uv.pip]
+generate-hashes = false
+index-strategy = "unsafe-best-match"
