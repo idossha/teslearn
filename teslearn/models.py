@@ -80,9 +80,10 @@ class LogisticRegressionModel(BaseModel):
         elif self.penalty == "elasticnet" and self.solver != "saga":
             self.solver = "saga"
 
+        # Build kwargs based on sklearn version
+        # penalty parameter is deprecated in sklearn 1.8+, use l1_ratio instead
         kwargs = {
             "C": self.C,
-            "penalty": self.penalty,
             "solver": self.solver,
             "max_iter": self.max_iter,
             "class_weight": self.class_weight,
@@ -90,8 +91,34 @@ class LogisticRegressionModel(BaseModel):
             "tol": self.tol,
         }
 
-        if self.penalty == "elasticnet" and self.l1_ratio is not None:
-            kwargs["l1_ratio"] = self.l1_ratio
+        # Handle penalty/l1_ratio based on sklearn version
+        try:
+            # Try new API (sklearn >= 1.8) - penalty is deprecated
+            import sklearn
+
+            sklearn_version = tuple(map(int, sklearn.__version__.split(".")[:2]))
+            if sklearn_version >= (1, 8):
+                # New API: use l1_ratio instead of penalty
+                if self.penalty == "l1":
+                    kwargs["l1_ratio"] = 1.0
+                elif self.penalty == "l2":
+                    kwargs["l1_ratio"] = 0.0
+                elif self.penalty == "elasticnet":
+                    kwargs["l1_ratio"] = (
+                        self.l1_ratio if self.l1_ratio is not None else 0.5
+                    )
+                elif self.penalty is None:
+                    kwargs["C"] = float("inf")
+            else:
+                # Old API: use penalty parameter
+                kwargs["penalty"] = self.penalty
+                if self.penalty == "elasticnet" and self.l1_ratio is not None:
+                    kwargs["l1_ratio"] = self.l1_ratio
+        except (ImportError, AttributeError):
+            # Fallback to old API
+            kwargs["penalty"] = self.penalty
+            if self.penalty == "elasticnet" and self.l1_ratio is not None:
+                kwargs["l1_ratio"] = self.l1_ratio
 
         self.model_ = LogisticRegression(**kwargs)
 
@@ -116,7 +143,7 @@ class LogisticRegressionModel(BaseModel):
         self._check_is_fitted()
         return self.model_.predict_proba(X)
 
-    def get_params(self) -> Dict[str, Any]:
+    def get_params(self, deep: bool = True) -> Dict[str, Any]:
         """Get model parameters."""
         return {
             "C": self.C,
@@ -234,7 +261,7 @@ class SVMModel(BaseModel):
             raise RuntimeError("probability=False, cannot predict_proba")
         return self.model_.predict_proba(X)
 
-    def get_params(self) -> Dict[str, Any]:
+    def get_params(self, deep: bool = True) -> Dict[str, Any]:
         """Get model parameters."""
         return {
             "C": self.C,
@@ -332,7 +359,7 @@ class ElasticNetModel(BaseModel):
         """Not applicable for regression."""
         raise NotImplementedError("ElasticNetModel is a regressor, not classifier")
 
-    def get_params(self) -> Dict[str, Any]:
+    def get_params(self, deep: bool = True) -> Dict[str, Any]:
         """Get model parameters."""
         return {
             "alpha": self.alpha,
@@ -436,7 +463,7 @@ class RandomForestModel(BaseModel):
         self._check_is_fitted()
         return self.model_.feature_importances_
 
-    def get_params(self) -> Dict[str, Any]:
+    def get_params(self, deep: bool = True) -> Dict[str, Any]:
         return {
             "n_estimators": self.n_estimators,
             "max_depth": self.max_depth,

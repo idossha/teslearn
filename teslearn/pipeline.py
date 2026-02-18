@@ -132,7 +132,9 @@ class TESPipeline(BaseEstimator):
 
         return self
 
-    def transform(self, images: List[Any]) -> np.ndarray:
+    def transform(
+        self, images: List[Any], subjects: Optional[List[Any]] = None
+    ) -> np.ndarray:
         """
         Transform images to features (without prediction).
 
@@ -140,6 +142,10 @@ class TESPipeline(BaseEstimator):
         ----------
         images : List[NiftiImageLike]
             Input images
+        subjects : Optional[List[Subject]]
+            If provided, updates any metadata-aware feature extractors
+            (e.g. ``MetadataFeatureExtractor``) so they return features for
+            these subjects instead of the ones used during training.
 
         Returns
         -------
@@ -148,6 +154,10 @@ class TESPipeline(BaseEstimator):
         """
         if not self._is_fitted:
             raise RuntimeError("Pipeline must be fitted before transform")
+
+        # Update subjects on the extractor if provided
+        if subjects is not None and hasattr(self.feature_extractor, "set_subjects"):
+            self.feature_extractor.set_subjects(subjects)
 
         # Extract features
         X = self.feature_extractor.transform(images)
@@ -162,7 +172,9 @@ class TESPipeline(BaseEstimator):
 
         return X
 
-    def predict(self, images: List[Any]) -> np.ndarray:
+    def predict(
+        self, images: List[Any], subjects: Optional[List[Any]] = None
+    ) -> np.ndarray:
         """
         Make predictions.
 
@@ -170,16 +182,20 @@ class TESPipeline(BaseEstimator):
         ----------
         images : List[NiftiImageLike]
             Input images
+        subjects : Optional[List[Subject]]
+            If provided, updates metadata-aware feature extractors.
 
         Returns
         -------
         predictions : np.ndarray
             Class predictions (or continuous predictions for regression)
         """
-        X = self.transform(images)
+        X = self.transform(images, subjects=subjects)
         return self.model.predict(X)
 
-    def predict_proba(self, images: List[Any]) -> np.ndarray:
+    def predict_proba(
+        self, images: List[Any], subjects: Optional[List[Any]] = None
+    ) -> np.ndarray:
         """
         Predict class probabilities.
 
@@ -187,13 +203,15 @@ class TESPipeline(BaseEstimator):
         ----------
         images : List[NiftiImageLike]
             Input images
+        subjects : Optional[List[Subject]]
+            If provided, updates metadata-aware feature extractors.
 
         Returns
         -------
         probabilities : np.ndarray
             Class probabilities
         """
-        X = self.transform(images)
+        X = self.transform(images, subjects=subjects)
         return self.model.predict_proba(X)
 
     def score(self, images: List[Any], y: np.ndarray) -> float:

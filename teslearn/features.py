@@ -130,13 +130,21 @@ class AtlasFeatureExtractor(BaseFeatureExtractor):
             Not used, present for API compatibility
         """
         import nibabel as nib
+        from nibabel.processing import resample_from_to
 
         if not self.atlas_path.exists():
             raise FileNotFoundError(f"Atlas not found: {self.atlas_path}")
 
-        # Load atlas
+        # Load atlas and resample to image space (nearest-neighbour for labels)
         atlas_img = nib.load(str(self.atlas_path))
-        self._atlas_data = np.asanyarray(atlas_img.dataobj).astype(np.int32)
+        if images:
+            ref = images[0]
+            atlas_img = resample_from_to(
+                atlas_img, (ref.shape[:3], ref.affine), order=0
+            )
+        self._atlas_data = _ensure_3d_data(np.asanyarray(atlas_img.dataobj)).astype(
+            np.int32
+        )
 
         # Get unique ROI IDs (excluding background 0)
         unique_ids = np.unique(self._atlas_data)
@@ -499,7 +507,7 @@ class MetadataFeatureExtractor(BaseFeatureExtractor):
         Parameters
         ----------
         images : List[NiftiImageLike]
-            Ignored, present for API compatibility
+            Used to determine expected number of samples.
 
         Returns
         -------
@@ -508,7 +516,13 @@ class MetadataFeatureExtractor(BaseFeatureExtractor):
         """
         self._check_is_fitted()
 
-        n_samples = len(self.subjects)
+        n_samples = len(images)
+        if len(self.subjects) != n_samples:
+            raise ValueError(
+                f"Number of subjects ({len(self.subjects)}) does not match "
+                f"number of images ({n_samples}). Call set_subjects() with "
+                f"the correct subject list before transform."
+            )
         n_features = len(self.metadata_fields)
         X = np.zeros((n_samples, n_features), dtype=np.float32)
 
@@ -539,10 +553,83 @@ class MetadataFeatureExtractor(BaseFeatureExtractor):
                 values.append(None)
         return values
 
+    def set_subjects(self, subjects: List[Any]) -> None:
+        """
+        Update the subjects used for metadata extraction.
+
+        Call this before ``transform`` when predicting on a different split
+        (e.g. validation or test subjects).
+
+        Parameters
+        ----------
+        subjects : List[Subject]
+            New list of subjects whose metadata will be extracted.
+        """
+        self.subjects = subjects
+
     def _check_is_fitted(self):
         if not self._is_fitted:
             raise RuntimeError(
                 "MetadataFeatureExtractor must be fitted before transform"
+            )
+
+
+class SelectedFeatureExtractor(BaseFeatureExtractor):
+    """
+    Wraps a fitted extractor and keeps only specified feature columns.
+
+    Use this to bake a pre-fitted feature selection into the extraction step
+    so the pipeline needs no separate ``feature_selector``.
+
+    Parameters
+    ----------
+    extractor : BaseFeatureExtractor
+        A **fitted** extractor (e.g. ``AtlasFeatureExtractor``).
+    selected_indices : array-like of int
+        Column indices to keep from the wrapped extractor's output.
+
+    Examples
+    --------
+    >>> atlas = AtlasFeatureExtractor(atlas_path='atlas.nii.gz', statistics=['mean'])
+    >>> atlas.fit(train_images)
+    >>> X = atlas.transform(train_images)
+    >>>
+    >>> selector = TTestSelector(p_threshold=0.05)
+    >>> selector.fit(X, y_train)
+    >>>
+    >>> selected = SelectedFeatureExtractor(atlas, selector.selected_indices_)
+    >>> selected.fit(train_images)          # lightweight — just resolves names
+    >>> X_sel = selected.transform(images)  # returns only selected columns
+    """
+
+    def __init__(
+        self,
+        extractor: BaseFeatureExtractor,
+        selected_indices: Any,
+    ):
+        super().__init__()
+        self.extractor = extractor
+        self.selected_indices = np.asarray(selected_indices)
+
+    def fit(
+        self, images: List[NiftiImageLike], y: Optional[np.ndarray] = None
+    ) -> "SelectedFeatureExtractor":
+        """Resolve feature names from the wrapped extractor."""
+        all_names = self.extractor.get_feature_names()
+        self.feature_names_ = [all_names[i] for i in self.selected_indices]
+        self._is_fitted = True
+        return self
+
+    def transform(self, images: List[NiftiImageLike]) -> np.ndarray:
+        """Extract all features then keep only selected columns."""
+        self._check_is_fitted()
+        X = self.extractor.transform(images)
+        return X[:, self.selected_indices]
+
+    def _check_is_fitted(self):
+        if not self._is_fitted:
+            raise RuntimeError(
+                "SelectedFeatureExtractor must be fitted before transform"
             )
 
 
@@ -556,6 +643,9 @@ class CompositeFeatureExtractor(BaseFeatureExtractor):
     ----------
     extractors : List[BaseFeatureExtractor]
         List of feature extractors to combine
+    add_prefix : bool
+        If True, prefix each extractor's feature names with ``ext{i}_`` to
+        avoid collisions.  Default is False.
 
     Examples
     --------
@@ -565,9 +655,14 @@ class CompositeFeatureExtractor(BaseFeatureExtractor):
     >>> X = composite.fit_transform(images)
     """
 
-    def __init__(self, extractors: List[BaseFeatureExtractor]):
+    def __init__(
+        self,
+        extractors: List[BaseFeatureExtractor],
+        add_prefix: bool = False,
+    ):
         super().__init__()
         self.extractors = extractors
+        self.add_prefix = add_prefix
 
     def fit(
         self, images: List[NiftiImageLike], y: Optional[np.ndarray] = None
@@ -579,10 +674,10 @@ class CompositeFeatureExtractor(BaseFeatureExtractor):
         # Combine feature names
         self.feature_names_ = []
         for i, extractor in enumerate(self.extractors):
-            prefix = f"ext{i}_"
-            self.feature_names_.extend(
-                [f"{prefix}{name}" for name in extractor.get_feature_names()]
-            )
+            names = extractor.get_feature_names()
+            if self.add_prefix:
+                names = [f"ext{i}_{name}" for name in names]
+            self.feature_names_.extend(names)
 
         self._is_fitted = True
         return self
@@ -594,8 +689,98 @@ class CompositeFeatureExtractor(BaseFeatureExtractor):
         feature_blocks = [ext.transform(images) for ext in self.extractors]
         return np.hstack(feature_blocks)
 
+    def set_subjects(self, subjects: List[Any]) -> None:
+        """
+        Update subjects on any child ``MetadataFeatureExtractor`` instances.
+
+        Parameters
+        ----------
+        subjects : List[Subject]
+            New subjects for metadata extraction.
+        """
+        for ext in self.extractors:
+            if hasattr(ext, "set_subjects"):
+                ext.set_subjects(subjects)
+
     def _check_is_fitted(self):
         if not self._is_fitted:
             raise RuntimeError(
                 "CompositeFeatureExtractor must be fitted before transform"
             )
+
+
+class GlobalMeanExtractor(BaseFeatureExtractor):
+    """
+    Extract global mean E-field intensity from each image.
+
+    Computes the mean of non-zero voxels across the entire brain volume,
+    providing a single scalar feature representing overall stimulation intensity.
+
+    Parameters
+    ----------
+    threshold : float
+        Minimum value to consider (default: 0.0). Voxels below this are excluded.
+
+    Examples
+    --------
+    >>> extractor = GlobalMeanExtractor()
+    >>> X = extractor.fit_transform(efield_images)
+    >>> print(f"Mean intensity: {X[0, 0]:.4f}")
+    """
+
+    def __init__(self, threshold: float = 0.0):
+        super().__init__()
+        self.threshold = threshold
+
+    def fit(
+        self, images: List[NiftiImageLike], y: Optional[np.ndarray] = None
+    ) -> "GlobalMeanExtractor":
+        """
+        Fit the extractor.
+
+        Parameters
+        ----------
+        images : List[NiftiImageLike]
+            E-field images (used to validate)
+        y : Optional[np.ndarray]
+            Not used, present for API compatibility
+        """
+        if not images:
+            raise ValueError("No images provided")
+
+        self.feature_names_ = ["global_mean_efield"]
+        self._is_fitted = True
+        logger.info("GlobalMeanExtractor fitted")
+        return self
+
+    def transform(self, images: List[NiftiImageLike]) -> np.ndarray:
+        """
+        Extract global mean E-field from images.
+
+        Parameters
+        ----------
+        images : List[NiftiImageLike]
+            E-field images
+
+        Returns
+        -------
+        X : np.ndarray
+            Feature matrix of shape (n_images, 1)
+        """
+        self._check_is_fitted()
+
+        means = []
+        for img in images:
+            data = np.asanyarray(img.dataobj)
+            data = _ensure_3d_data(data)
+
+            # Mean of voxels above threshold (exclude background)
+            valid_data = data[data > self.threshold]
+            mean_val = np.mean(valid_data) if len(valid_data) > 0 else 0.0
+            means.append(mean_val)
+
+        return np.array(means).reshape(-1, 1)
+
+    def _check_is_fitted(self):
+        if not self._is_fitted:
+            raise RuntimeError("GlobalMeanExtractor must be fitted before transform")

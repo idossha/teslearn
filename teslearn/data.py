@@ -447,3 +447,76 @@ class NiftiLoader:
         """Clear the image cache."""
         self._cache.clear()
         self._cache_order.clear()
+
+
+def load_nifti_BIDS(
+    base_path: Union[str, Path],
+    dataset: Union[Dataset, List[Subject]],
+    file_pattern: str = "derivatives/SimNIBS/sub-{subject_id}/Simulations/{simulation_name}/TI/niftis/grey_{simulation_name}_TI_MNI_MNI_TI_max.nii.gz",
+    cache_size: int = 10,
+) -> Tuple[List[Any], List[Subject]]:
+    """
+    Load NIfTI images following BIDS directory conventions.
+
+    Iterates over subjects, constructs file paths from a pattern, and loads
+    NIfTI images. Sham subjects are skipped. Each successfully loaded subject
+    has its ``efield_path`` attribute set to the resolved path.
+
+    Parameters
+    ----------
+    base_path : Union[str, Path]
+        Root of the BIDS dataset directory.
+    dataset : Union[Dataset, List[Subject]]
+        A Dataset or list of Subject objects to load images for.
+    file_pattern : str
+        Path pattern relative to *base_path* with ``{subject_id}`` and
+        ``{simulation_name}`` placeholders.
+    cache_size : int
+        Number of NIfTI images to keep in the loader cache.
+
+    Returns
+    -------
+    images : List[Any]
+        Successfully loaded NIfTI images (nibabel image objects).
+    subjects : List[Subject]
+        Subjects corresponding to each loaded image (parallel list).
+    """
+    base_path = Path(base_path)
+    subjects = dataset.subjects if isinstance(dataset, Dataset) else dataset
+    loader = NiftiLoader(cache_size=cache_size)
+
+    loaded_images: List[Any] = []
+    loaded_subjects: List[Subject] = []
+
+    for subject in subjects:
+        if subject.is_sham():
+            logger.info("Skipping sham subject %s", subject.subject_id)
+            continue
+
+        resolved = resolve_efield_path(
+            subject_id=subject.subject_id,
+            simulation_name=subject.simulation_name,
+            base_dir=base_path,
+            pattern=file_pattern,
+        )
+
+        try:
+            img = loader.load(resolved)
+        except FileNotFoundError:
+            logger.warning("File not found for subject %s: %s", subject.subject_id, resolved)
+            continue
+        except Exception:
+            logger.warning("Failed to load NIfTI for subject %s: %s", subject.subject_id, resolved, exc_info=True)
+            continue
+
+        subject.efield_path = resolved
+        loaded_images.append(img)
+        loaded_subjects.append(subject)
+
+    logger.info(
+        "Loaded %d/%d images (skipped sham and missing)",
+        len(loaded_images),
+        len(subjects),
+    )
+
+    return loaded_images, loaded_subjects

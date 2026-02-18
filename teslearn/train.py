@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import logging
+import warnings
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import (
     roc_auc_score,
@@ -205,9 +206,11 @@ def cross_validate(
     # Outer CV loop
     nested = NestedCrossValidator(outer_validator, inner_validator)
 
-    for fold_idx, X_train, X_test, y_train, y_test in nested.split(X, y):
+    for fold_idx, X_train, X_test, y_train, y_test, train_idx, test_idx in nested.split(
+        X, y
+    ):
         if verbose:
-            logger.info(f"\nOuter fold {fold_idx}/{nested.get_n_splits()}")
+            logger.info(f"\nOuter fold {fold_idx}")
 
         # Inner CV for hyperparameter tuning
         if param_grid is not None and len(param_grid) > 0:
@@ -243,25 +246,12 @@ def cross_validate(
         # Compute metrics
         result = CVResult(
             fold=fold_idx,
-            train_indices=nested.outer_validator.split(X, y).__next__()[
-                0
-            ],  # Approximate
-            test_indices=np.where(
-                np.isin(np.arange(len(y)), np.where(np.isin(X, X_test).all(axis=1))[0])
-            )[0],
+            train_indices=train_idx,
+            test_indices=test_idx,
             best_params=best_params,
             predictions=predictions,
             probabilities=probabilities,
         )
-
-        # Fill in actual test indices
-        test_idx_mask = np.zeros(len(y), dtype=bool)
-        # This is a simplification - proper implementation would track indices
-        result.test_indices = np.arange(len(y))[
-            fold_idx * len(y) // nested.get_n_splits() : (fold_idx + 1)
-            * len(y)
-            // nested.get_n_splits()
-        ]
 
         if is_classification:
             result.accuracy = accuracy_score(y_test, predictions)
@@ -271,8 +261,12 @@ def cross_validate(
 
             if probabilities is not None:
                 try:
-                    result.roc_auc = roc_auc_score(y_test, probabilities[:, 1])
-                    result.pr_auc = average_precision_score(y_test, probabilities[:, 1])
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        result.roc_auc = roc_auc_score(y_test, probabilities[:, 1])
+                        result.pr_auc = average_precision_score(
+                            y_test, probabilities[:, 1]
+                        )
                 except ValueError:
                     pass
         else:
