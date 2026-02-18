@@ -15,5 +15,7 @@ API Reference
    predict
    explain
    plotting
-   utils
+   viz
+   metrics
    io
+   utils
