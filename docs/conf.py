@@ -5,17 +5,23 @@
 
 import os
 import sys
+import tomllib
 
 sys.path.insert(0, os.path.abspath(".."))
 
-import teslearn
+# Read version from pyproject.toml instead of importing the package
+# This avoids import errors when optional dependencies aren't installed
+pyproject_path = os.path.join(os.path.abspath(".."), "pyproject.toml")
+with open(pyproject_path, "rb") as f:
+    pyproject_data = tomllib.load(f)
+    __version__ = pyproject_data["project"]["version"]
 
 # -- Project information -----------------------------------------------------
 project = "TESLearn"
 copyright = "2025, TESLearn Contributors"
 author = "TESLearn Contributors"
-release = teslearn.__version__
-version = teslearn.__version__
+release = __version__
+version = __version__
 
 # -- General configuration ---------------------------------------------------
 extensions = [
