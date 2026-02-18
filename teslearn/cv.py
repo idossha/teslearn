@@ -317,18 +317,18 @@ def create_validator(
 @dataclass
 class PermutationTestResult:
     """Result from permutation testing."""
-    
+
     observed_score: float
     permuted_scores: np.ndarray
     p_value: float
     n_permutations: int
     score_name: str
-    
+
     def get_summary(self) -> str:
         """Get text summary of permutation test."""
         mean_perm = np.mean(self.permuted_scores)
         std_perm = np.std(self.permuted_scores)
-        
+
         lines = [
             "=" * 60,
             "Permutation Test Results",
@@ -337,7 +337,7 @@ class PermutationTestResult:
             f"Observed score: {self.observed_score:.4f}",
             f"Permutation distribution: mean={mean_perm:.4f}, std={std_perm:.4f}",
             f"Number of permutations: {self.n_permutations}",
-            f"P-value: {self.p_value:.4f} {'(significant)' if self.p_value < 0.05 else '(not significant)'}"",
+            f"P-value: {self.p_value:.4f} {'(significant)' if self.p_value < 0.05 else '(not significant)'}",
             "=" * 60,
         ]
         return "\n".join(lines)
@@ -356,11 +356,11 @@ def permutation_test(
 ) -> PermutationTestResult:
     """
     Perform permutation testing to assess model significance.
-    
+
     Permutation testing creates a null distribution by randomly shuffling labels
     and re-training the model. The p-value is the proportion of permuted scores
     that are better than or equal to the observed score.
-    
+
     Parameters
     ----------
     X : np.ndarray
@@ -381,12 +381,12 @@ def permutation_test(
         Number of parallel jobs (-1 uses all cores, default: 1)
     verbose : bool
         Whether to show progress
-        
+
     Returns
     -------
     result : PermutationTestResult
         Permutation test results
-        
+
     Examples
     --------
     >>> validator = StratifiedKFoldValidator(n_splits=5)
@@ -399,21 +399,21 @@ def permutation_test(
     from sklearn.metrics import get_scorer, roc_auc_score, accuracy_score, f1_score
     from joblib import Parallel, delayed
     import time
-    
+
     rng = np.random.RandomState(random_state)
-    
+
     # Compute observed score
     logger.info("Computing observed score...")
     observed_predictions = []
     observed_true = []
-    
+
     for train_idx, test_idx in validator.split(X, y):
         X_train, X_test = X[train_idx], X[test_idx]
         y_train, y_test = y[train_idx], y[test_idx]
-        
+
         model_clone = model.__class__(**model.get_params())
         model_clone.fit(X_train, y_train)
-        
+
         if scoring == "roc_auc":
             try:
                 y_pred = model_clone.predict_proba(X_test)[:, 1]
@@ -421,14 +421,14 @@ def permutation_test(
                 y_pred = model_clone.predict(X_test)
         else:
             y_pred = model_clone.predict(X_test)
-        
-        observed_predictions.extend(y_pred if hasattr(y_pred, '__iter__') else [y_pred])
+
+        observed_predictions.extend(y_pred if hasattr(y_pred, "__iter__") else [y_pred])
         observed_true.extend(y_test)
-    
+
     # Calculate observed score
     y_true_arr = np.array(observed_true)
     y_pred_arr = np.array(observed_predictions)
-    
+
     if scoring == "roc_auc":
         observed_score = roc_auc_score(y_true_arr, y_pred_arr)
     elif scoring == "accuracy":
@@ -438,25 +438,25 @@ def permutation_test(
     else:
         scorer = get_scorer(scoring)
         observed_score = scorer._score_func(y_true_arr, y_pred_arr)
-    
+
     logger.info(f"Observed {scoring}: {observed_score:.4f}")
-    
+
     # Run permutations
     def _single_permutation(seed: int) -> float:
         """Run a single permutation and return score."""
         rng_perm = np.random.RandomState(seed)
         y_perm = rng_perm.permutation(y)
-        
+
         perm_predictions = []
         perm_true = []
-        
+
         for train_idx, test_idx in validator.split(X, y_perm):
             X_train, X_test = X[train_idx], X[test_idx]
             y_train, y_test = y_perm[train_idx], y_perm[test_idx]
-            
+
             model_clone = model.__class__(**model.get_params())
             model_clone.fit(X_train, y_train)
-            
+
             if scoring == "roc_auc":
                 try:
                     y_pred = model_clone.predict_proba(X_test)[:, 1]
@@ -464,13 +464,13 @@ def permutation_test(
                     y_pred = model_clone.predict(X_test)
             else:
                 y_pred = model_clone.predict(X_test)
-            
-            perm_predictions.extend(y_pred if hasattr(y_pred, '__iter__') else [y_pred])
+
+            perm_predictions.extend(y_pred if hasattr(y_pred, "__iter__") else [y_pred])
             perm_true.extend(y_test)
-        
+
         y_true_perm = np.array(perm_true)
         y_pred_perm = np.array(perm_predictions)
-        
+
         if scoring == "roc_auc":
             return roc_auc_score(y_true_perm, y_pred_perm)
         elif scoring == "accuracy":
@@ -480,14 +480,15 @@ def permutation_test(
         else:
             scorer = get_scorer(scoring)
             return scorer._score_func(y_true_perm, y_pred_perm)
-    
+
     # Run permutations (parallel or sequential)
     logger.info(f"Running {n_permutations} permutations...")
     start_time = time.time()
-    
+
     if n_jobs == 1:
-        permuted_scores = np.array([_single_permutation(rng.randint(0, 2**31)) 
-                                     for _ in range(n_permutations)])
+        permuted_scores = np.array(
+            [_single_permutation(rng.randint(0, 2**31)) for _ in range(n_permutations)]
+        )
     else:
         n_jobs_eff = n_jobs if n_jobs > 0 else -1
         seeds = rng.randint(0, 2**31, size=n_permutations)
@@ -496,15 +497,15 @@ def permutation_test(
                 delayed(_single_permutation)(seed) for seed in seeds
             )
         )
-    
+
     elapsed = time.time() - start_time
     logger.info(f"Permutations completed in {elapsed:.1f}s")
-    
+
     # Calculate p-value (one-sided: proportion of permutations >= observed)
     p_value = (np.sum(permuted_scores >= observed_score) + 1) / (n_permutations + 1)
-    
+
     logger.info(f"P-value: {p_value:.4f}")
-    
+
     return PermutationTestResult(
         observed_score=observed_score,
         permuted_scores=permuted_scores,
@@ -521,9 +522,9 @@ def plot_permutation_test(
 ) -> Path:
     """
     Plot permutation test results.
-    
+
     Creates a histogram of permuted scores with observed score marked.
-    
+
     Parameters
     ----------
     result : PermutationTestResult
@@ -532,34 +533,47 @@ def plot_permutation_test(
         Output path for figure
     figsize : Tuple[int, int]
         Figure size
-        
+
     Returns
     -------
     output_path : Path
         Path to saved figure
     """
     import matplotlib.pyplot as plt
-    
+
     fig, ax = plt.subplots(figsize=figsize)
-    
+
     # Histogram of permuted scores
-    ax.hist(result.permuted_scores, bins=30, alpha=0.7, color='gray', 
-            edgecolor='black', label='Permuted scores')
-    
+    ax.hist(
+        result.permuted_scores,
+        bins=30,
+        alpha=0.7,
+        color="gray",
+        edgecolor="black",
+        label="Permuted scores",
+    )
+
     # Mark observed score
-    ax.axvline(result.observed_score, color='red', linewidth=2, 
-               linestyle='--', label=f'Observed: {result.observed_score:.3f}')
-    
-    ax.set_xlabel(result.score_name.replace('_', ' ').title(), fontsize=11)
-    ax.set_ylabel('Frequency', fontsize=11)
-    ax.set_title(f'Permutation Test (p={result.p_value:.4f}, n={result.n_permutations})', 
-                 fontsize=12)
-    ax.legend(loc='best')
-    ax.grid(axis='y', alpha=0.3)
-    
+    ax.axvline(
+        result.observed_score,
+        color="red",
+        linewidth=2,
+        linestyle="--",
+        label=f"Observed: {result.observed_score:.3f}",
+    )
+
+    ax.set_xlabel(result.score_name.replace("_", " ").title(), fontsize=11)
+    ax.set_ylabel("Frequency", fontsize=11)
+    ax.set_title(
+        f"Permutation Test (p={result.p_value:.4f}, n={result.n_permutations})",
+        fontsize=12,
+    )
+    ax.legend(loc="best")
+    ax.grid(axis="y", alpha=0.3)
+
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
-    
+
     logger.info(f"Permutation test plot saved to {output_path}")
     return output_path
