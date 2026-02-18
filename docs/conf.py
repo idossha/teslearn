@@ -65,6 +65,14 @@ html_css_files = [
 ]
 
 # -- Extension configuration -------------------------------------------------
+# Mock imports for modules not needed during docs build
+autodoc_mock_imports = [
+    "matplotlib",
+    "matplotlib.pyplot",
+    "nilearn",
+    "nilearn.plotting",
+]
+
 autodoc_default_options = {
     "members": True,
     "member-order": "bysource",
